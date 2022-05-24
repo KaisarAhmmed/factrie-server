@@ -21,8 +21,57 @@ const client = new MongoClient(uri, {
 async function run() {
     try {
         await client.connect();
-        const products = client.db("manufacturer").collection("products");
-        console.log("Connected successfully to server");
+        const productsCollectoin = client
+            .db("manufacturer")
+            .collection("products");
+        const userCollection = client.db("manufacturer").collection("users");
+
+        app.post("/products", async (req, res) => {
+            const product = req.body;
+            const result = await productsCollectoin.insertOne(product);
+            res.send(result);
+        });
+
+        app.get("/user/:email", async (req, res) => {
+            const email = req.params.email;
+            const query = { email: email };
+            const data = await userCollection.findOne(query);
+            res.send(data);
+        });
+
+        app.put("/user/:email", async (req, res) => {
+            const email = req.params.email;
+            const user = req.body;
+            const filter = { email: email };
+            const options = { upsert: true };
+            const updateDoc = {
+                $set: user,
+            };
+
+            const result = await userCollection.updateOne(
+                filter,
+                updateDoc,
+                options
+            );
+            res.send(result);
+        });
+
+        app.put("/update-user/:email", async (req, res) => {
+            const email = req.params.email;
+            const user = req.body;
+            const filter = { email: email };
+            const options = { upsert: true };
+            const updateDoc = {
+                $set: user,
+            };
+
+            const result = await userCollection.updateOne(
+                filter,
+                updateDoc,
+                options
+            );
+            res.send(result);
+        });
     } finally {
     }
 }
