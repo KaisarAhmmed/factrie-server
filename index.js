@@ -18,6 +18,21 @@ const client = new MongoClient(uri, {
     serverApi: ServerApiVersion.v1,
 });
 
+function verifyJWT(req, res, next) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+        return res.status(401).send({ message: "UnAuthorized access" });
+    }
+    const token = authHeader.split(" ")[1];
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, function (err, decoded) {
+        if (err) {
+            return res.status(403).send({ message: "Forbidden access" });
+        }
+        req.decoded = decoded;
+        next();
+    });
+}
+
 async function run() {
     try {
         await client.connect();
@@ -25,6 +40,38 @@ async function run() {
             .db("manufacturer")
             .collection("products");
         const userCollection = client.db("manufacturer").collection("users");
+        const orderCollection = client.db("manufacturer").collection("orders");
+
+        const verifyAdmin = async (req, res, next) => {
+            const requester = req.decoded.email;
+            const requesterAccount = await userCollection.findOne({
+                email: requester,
+            });
+            if (requesterAccount.role === "admin") {
+                next();
+            } else {
+                res.status(403).send({ message: "forbidden" });
+            }
+        };
+
+        app.get("/products", async (req, res) => {
+            const query = {};
+            const products = await productsCollectoin
+                .find(query)
+                .sort({ _id: -1 })
+                .toArray();
+            res.send(products);
+        });
+
+        //Get all users
+        app.get("/users", verifyJWT, async (req, res) => {
+            const query = {};
+            const users = await userCollection
+                .find(query)
+                .sort({ _id: -1 })
+                .toArray();
+            res.send(users);
+        });
 
         app.post("/products", async (req, res) => {
             const product = req.body;
@@ -32,10 +79,55 @@ async function run() {
             res.send(result);
         });
 
+        //update product stock
+        app.put("/product/:id", async (req, res) => {
+            const id = req.params.id;
+            const updatedProduct = req.body;
+            const filter = { _id: ObjectId(id) };
+            const options = { upsert: true };
+            const updatedDoc = {
+                $set: {
+                    stock: updatedProduct.stock,
+                },
+            };
+            const result = await productsCollectoin.updateOne(
+                filter,
+                updatedDoc,
+                options
+            );
+            res.send(result);
+        });
+
+        //get orders data
+        app.get("/get-orders/:email", async (req, res) => {
+            const email = req.params.email;
+            console.log(email);
+            const query = { buyerEmail: email };
+            const products = await orderCollection
+                .find(query)
+                .sort({ _id: -1 })
+                .toArray();
+            res.send(products);
+        });
+
+        app.post("/place-order", async (req, res) => {
+            const orderInfo = req.body;
+            const result = await orderCollection.insertOne(orderInfo);
+            res.send(result);
+        });
+
+        app.get("/product-detail/:id", async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: ObjectId(id) };
+            const detail = await productsCollectoin.findOne(query);
+            res.send(detail);
+        });
+
         app.get("/user/:email", async (req, res) => {
             const email = req.params.email;
             const query = { email: email };
             const data = await userCollection.findOne(query);
+
             res.send(data);
         });
 
@@ -53,7 +145,12 @@ async function run() {
                 updateDoc,
                 options
             );
-            res.send(result);
+            const token = jwt.sign(
+                { email: email },
+                process.env.ACCESS_TOKEN_SECRET,
+                { expiresIn: "1h" }
+            );
+            res.send({ result, token });
         });
 
         app.put("/update-user/:email", async (req, res) => {
