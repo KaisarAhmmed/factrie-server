@@ -5,6 +5,7 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const port = process.env.PORT || 4000;
+const stripe = require("stripe")(process.env.STRIPE_SECRET);
 
 //middleware
 app.use(cors());
@@ -41,6 +42,9 @@ async function run() {
             .collection("products");
         const userCollection = client.db("manufacturer").collection("users");
         const orderCollection = client.db("manufacturer").collection("orders");
+        const reviewsCollection = client
+            .db("manufacturer")
+            .collection("reviews");
 
         const verifyAdmin = async (req, res, next) => {
             const requester = req.decoded.email;
@@ -63,6 +67,16 @@ async function run() {
             res.send(products);
         });
 
+        // get reviews
+        app.get("/reviews", async (req, res) => {
+            const query = {};
+            const reivews = await reviewsCollection
+                .find(query)
+                .sort({ _id: -1 })
+                .toArray();
+            res.send(reivews);
+        });
+
         //Get all users
         app.get("/users", verifyJWT, async (req, res) => {
             const query = {};
@@ -76,6 +90,12 @@ async function run() {
         app.post("/products", async (req, res) => {
             const product = req.body;
             const result = await productsCollectoin.insertOne(product);
+            res.send(result);
+        });
+
+        app.post("/review", verifyJWT, async (req, res) => {
+            const review = req.body;
+            const result = await reviewsCollection.insertOne(review);
             res.send(result);
         });
 
@@ -210,6 +230,77 @@ async function run() {
             );
             res.send(result);
         });
+
+        //Booking order
+        app.get("/booking-order/:id", verifyJWT, async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: ObjectId(id) };
+            const data = await orderCollection.findOne(query);
+            const decodedEmail = req.decoded.email;
+            const author = data.email;
+
+            if (author === decodedEmail) {
+                return res.send(data);
+            } else {
+                return res.status(403).send({ message: "forbidden access" });
+            }
+        });
+
+        //Strip
+        app.post("/create-payment-intent", verifyJWT, async (req, res) => {
+            const { totalPrice } = req.body;
+
+            const amount = totalPrice * 100;
+
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount: amount,
+                currency: "usd",
+                payment_method_types: ["card"],
+            });
+            res.send({
+                clientSecret: paymentIntent.client_secret,
+            });
+        });
+
+        //update with payment
+        app.patch("/payment/:id", verifyJWT, async (req, res) => {
+            const id = req.params.id;
+            const payment = req.body;
+            const filter = { _id: ObjectId(id) };
+            const updatedDoc = {
+                $set: {
+                    paid: true,
+                    transactionId: payment.transactionId,
+                },
+            };
+
+            const updatedOrder = await orderCollection.updateOne(
+                filter,
+                updatedDoc
+            );
+            res.send(updatedOrder);
+        });
+
+        //User Order Delete
+        app.delete("/delete-order/:id", verifyJWT, async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: ObjectId(id) };
+            const result = await orderCollection.deleteOne(query);
+            res.send(result);
+        });
+
+        //Product Order Delete
+        app.delete(
+            "/delete-product/:id",
+            verifyJWT,
+            verifyAdmin,
+            async (req, res) => {
+                const id = req.params.id;
+                const query = { _id: ObjectId(id) };
+                const result = await productsCollectoin.deleteOne(query);
+                res.send(result);
+            }
+        );
     } finally {
     }
 }
