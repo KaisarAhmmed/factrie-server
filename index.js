@@ -100,7 +100,7 @@ async function run() {
         });
 
         //update product stock
-        app.put("/product/:id", async (req, res) => {
+        app.put("/product/:id", verifyJWT, async (req, res) => {
             const id = req.params.id;
             const updatedProduct = req.body;
             const filter = { _id: ObjectId(id) };
